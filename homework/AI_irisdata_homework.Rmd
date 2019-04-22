@@ -1,0 +1,363 @@
+---
+title: "인공지능의 이해와 활용과목 Iris 데이터 분류과제"
+
+author: "2017195151 윤정하"
+
+date: "`r Sys.Date()`"
+
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("reticulate",repos = "http://cran.us.r-project.org")
+#options(repos=c(CRAN="<something sensible near you>"))
+#install.packages("knitr")
+#library(knitr)
+library(reticulate)
+#knitr::knit_engines$set(python = reticulate::eng_python)
+
+
+```
+
+---
+
+### 1. Prepare Data
+
+---
+
+#### Iris Data
+
+This is perhaps the best known database to be found in the pattern recognition literature. Fisher's paper is a classic in the field and is referenced frequently to this day. (See Duda & Hart, for example.) The data set contains "3 classes of 50 instances each", where each class refers to a type of iris plant. One class is linearly separable from the other 2; the latter are NOT linearly separable from each other.
+
+Predicted attribute: class of iris plant.
+
+This is an exceedingly simple domain.
+
+This data differs from the data presented in Fishers article (identified by Steve Chadwick, spchadwick '@' espeedaz.net ). The 35th sample should be: 4.9,3.1,1.5,0.2,"Iris-setosa" where the error is in the fourth feature. The 38th sample: 4.9,3.6,1.4,0.1,"Iris-setosa" where the errors are in the second and third features.
+
+Attribute Information:
+
+* sepal(꽃잎) length in cm
+* sepal(꽃잎) width in cm
+* petal(꽃받침) length in cm
+* petal(꽃받침) width in cm
+* class: (Iris 꽃종류 3가지)
+- Iris Setosa
+- Iris Versicolour
+- Iris Virginica
+
+
+```{python}
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import os
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH']='C:/Users/JunghaYun/Anaconda3/Library/plugins/platforms'
+from sklearn import datasets
+
+```
+
+
+```{python}
+iris = datasets.load_iris()
+
+# sepal length in cm, sepal width in cm
+X = iris.data
+T = iris.target
+
+pool = np.arange(X.shape[0])
+np.random.shuffle(pool)
+
+train_indices = pool[:120]
+test_indices = pool[120:]
+
+train_x = X[train_indices]
+train_t = T[train_indices]
+
+test_x = X[test_indices]
+test_t = T[test_indices]
+
+```
+
+
+```{python}
+plt.scatter(X[:, 0], X[:, 1], c = T) 
+plt.colorbar()
+plt.show() #3가지로 꽃이 분류됨
+```
+
+
+---
+
+### 2. Define Model
+
+---
+
+
+```{python}
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+```
+
+
+```{python}
+def softmax(x):
+    if x.ndim == 2:
+        x = x.T
+        x = x - np.max(x, axis=0)
+        y = np.exp(x) / np.sum(np.exp(x), axis=0)
+        return y.T 
+
+    x = x - np.max(x)
+    return np.exp(x) / np.sum(np.exp(x))
+```
+
+
+```{python}
+def cross_entropy_error(y, t):
+    if y.ndim == 1:
+        t = t.reshape(1, t.size)
+        y = y.reshape(1, y.size)
+        
+    if t.size == y.size:
+        t = t.argmax(axis=1)
+             
+    batch_size = y.shape[0]
+    
+    return - np.sum( np.log( y[np.arange(batch_size), t] + 1e-7) ) / batch_size
+
+```
+
+
+```{python}
+def numerical_gradient(f, x):
+    h = 0.01
+    grad = np.zeros_like(x)
+    
+    it = np.nditer(x, flags=['multi_index'])
+    while not it.finished:
+        idx = it.multi_index
+        tmp_val = x[idx]
+        x[idx] = float(tmp_val) + h
+        fxh1 = f(x) # f(x+h)           #f(x)가 나오기에 lambda ftn 씀
+        
+        x[idx] = tmp_val - h 
+        fxh2 = f(x) # f(x-h)
+        grad[idx] = (fxh1 - fxh2) / (2*h)
+        
+        x[idx] = tmp_val
+        it.iternext()   
+        
+    return grad
+```
+
+#### 2 layer net
+
+```{python}
+
+class TwoLayerNet:
+
+    def __init__(self, input_size, hidden_size, output_size, weight_init_std=0.01):
+        self.params = {}
+        self.params['W1'] = weight_init_std * np.random.randn(input_size, hidden_size)
+        self.params['b1'] = np.zeros(hidden_size)
+        self.params['W2'] = weight_init_std * np.random.randn(hidden_size, output_size)
+        self.params['b2'] = np.zeros(output_size)
+
+    def predict(self, x):
+        W1 = self.params['W1']
+        b1 = self.params['b1']
+        W2 = self.params['W2']
+        b2 = self.params['b2']
+    
+        a1=np.dot(x,W1)+b1
+        z1=sigmoid(a1)
+        a2=np.dot(z1,W2)+b2
+        y=softmax(a2)
+        
+        return y
+        
+    def loss(self, x, t):
+        
+        y = self.predict(x) 
+                
+        return cross_entropy_error(y, t)
+    
+    def n_gradient(self, x, t):
+        loss_W = lambda W: self.loss(x, t)
+        
+        grads = {}
+        grads['W1'] = numerical_gradient(loss_W, self.params['W1']) 
+        grads['b1'] = numerical_gradient(loss_W, self.params['b1']) 
+        grads['W2'] = numerical_gradient(loss_W, self.params['W2']) 
+        grads['b2'] = numerical_gradient(loss_W, self.params['b2']) 
+        
+        return grads
+
+```
+
+#### 3 layer net
+
+```{python}
+
+class ThreeLayerNet:
+
+    def __init__(self, input_size, hidden1_size, hidden2_size, output_size, weight_init_std=0.01):
+        self.params = {}
+        self.params['W1'] = weight_init_std * np.random.randn(input_size, hidden1_size)
+        self.params['b1'] = np.zeros(hidden1_size)
+        self.params['W2'] = weight_init_std * np.random.randn(hidden1_size, hidden2_size)
+        self.params['b2'] = np.zeros(hidden2_size)
+        self.params['W3'] = weight_init_std * np.random.randn(hidden2_size, output_size)
+        self.params['b3'] = np.zeros(output_size)
+
+    def predict(self, x):
+        W1 = self.params['W1']
+        b1 = self.params['b1']
+        W2 = self.params['W2']
+        b2 = self.params['b2']
+        W3 = self.params['W3']
+        b3 = self.params['b3']
+        
+        a1=np.dot(x,W1)+b1
+        z1=sigmoid(a1)
+        a2=np.dot(z1,W2)+b2
+        z2=sigmoid(a2)
+        a3=np.dot(z2,W3)+b3
+        y=softmax(a3)
+        
+        return y
+        
+    def loss(self, x, t):
+        
+        y = self.predict(x) 
+                
+        return cross_entropy_error(y, t)
+    
+    def n_gradient(self, x, t):
+        loss_W = lambda W: self.loss(x, t)
+        
+        grads = {}
+        grads['W1'] = numerical_gradient(loss_W, self.params['W1']) # MODIFY THIS
+        grads['b1'] = numerical_gradient(loss_W, self.params['b1']) # MODIFY THIS
+        grads['W2'] = numerical_gradient(loss_W, self.params['W2']) # MODIFY THIS
+        grads['b2'] = numerical_gradient(loss_W, self.params['b2']) # MODIFY THIS
+        grads['W3'] = numerical_gradient(loss_W, self.params['W3']) # MODIFY THIS
+        grads['b3'] = numerical_gradient(loss_W, self.params['b3']) # MODIFY THIS
+        
+        
+        return grads
+
+```
+
+---
+
+### 3. Train Model
+
+---
+
+#### 2 layer net
+
+```{python}
+
+learning_rate = 0.1  # 여기서는 크게 하는게 유리: 0.001->0.01->0.1 , 손실이 0에 가까울수록 좋음
+
+net = TwoLayerNet(train_x.shape[1], 10, 3)
+
+train_loss_list = []
+
+for i in range(1000):
+    
+    grad = net.n_gradient(train_x,train_t) 
+
+
+    for key in ('W1', 'b1', 'W2', 'b2'):
+        net.params[key]-=learning_rate*grad[key]
+    
+    loss = net.loss(train_x,train_t) 
+    train_loss_list.append(loss)
+    
+    if i % 50 == 0:
+        print('iter: {} loss: {}'.format(i, loss))
+
+plt.plot(train_loss_list)
+plt.show()
+
+```
+  
+  
+#### 3 layer net
+
+```{python}
+
+learning_rate = 1.1  # MODIFY THIS: 크게 하는게 유리: 0.001->0.01->0.1 
+
+net = ThreeLayerNet(train_x.shape[1], 10, 10, 3) #node 개수 마음대로 추가
+
+train_loss_list = []
+
+for i in range(1000):
+    
+    grad = net.n_gradient(train_x,train_t) 
+
+    for key in ('W1', 'b1', 'W2', 'b2', 'W3', 'b3'):
+        net.params[key]-=learning_rate*grad[key]
+    
+    loss = net.loss(train_x,train_t) 
+    train_loss_list.append(loss)
+    
+    if i % 50 == 0:
+        print('iter: {} loss: {}'.format(i, loss))
+
+plt.plot(train_loss_list)
+plt.show()
+```
+
+---
+
+### 4. Test Model
+
+---
+
+#### 2 layer의 경우
+
+```{python}
+
+test_y = net.predict(test_x)
+test_y = np.argmax(test_y, axis=1)
+
+fig = plt.figure(figsize=(16, 5))
+
+ax1 = fig.add_subplot(1, 2, 1)
+ax2 = fig.add_subplot(1, 2, 2)
+
+ax1.scatter(test_x[:, 0], test_x[:, 1], c = test_t)
+ax2.scatter(test_x[:, 0], test_x[:, 1], c = test_y)
+
+ax1.set_title('Real')
+ax2.set_title('Predict')
+
+plt.show()
+```
+
+#### 3 layer의 경우
+
+```{python}
+
+test_y = net.predict(test_x)
+test_y = np.argmax(test_y, axis=1)
+
+fig = plt.figure(figsize=(16, 5))
+
+ax1 = fig.add_subplot(1, 2, 1)
+ax2 = fig.add_subplot(1, 2, 2)
+
+ax1.scatter(test_x[:, 0], test_x[:, 1], c = test_t)
+ax2.scatter(test_x[:, 0], test_x[:, 1], c = test_y)
+
+ax1.set_title('Real')
+ax2.set_title('Predict')
+
+plt.show()
+```
+
